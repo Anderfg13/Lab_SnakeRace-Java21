@@ -38,7 +38,7 @@ public final class SnakeApp extends JFrame {
       snakes.add(Snake.of(x, y, dir));
     }
 
-    this.gamePanel = new GamePanel(board, () -> snakes);
+    this.gamePanel = new GamePanel(board, () -> snakes, gameState);
     this.actionButton = new JButton("Start");
 
 
@@ -153,6 +153,7 @@ public final class SnakeApp extends JFrame {
         gameState.set(GameState.PAUSED);
         clock.pause();
         actionButton.setText("Resume");
+        gamePanel.repaint();
     } else if ("Resume".equals(current)) {
         gameState.set(GameState.RUNNING);
         clock.resume();
@@ -163,6 +164,7 @@ public final class SnakeApp extends JFrame {
   public static final class GamePanel extends JPanel {
     private final Board board;
     private final Supplier snakesSupplier;
+    private final AtomicReference<GameState> gameState;
     private final int cell = 20;
 
     @FunctionalInterface
@@ -170,9 +172,10 @@ public final class SnakeApp extends JFrame {
       List<Snake> get();
     }
 
-    public GamePanel(Board board, Supplier snakesSupplier) {
+    public GamePanel(Board board, Supplier snakesSupplier, AtomicReference<GameState> gameState) {
       this.board = board;
       this.snakesSupplier = snakesSupplier;
+      this.gameState = gameState;
       setPreferredSize(new Dimension(board.width() * cell + 1, board.height() * cell + 40));
       setBackground(Color.WHITE);
     }
@@ -232,18 +235,49 @@ public final class SnakeApp extends JFrame {
       }
 
       // Serpientes
+      Snake longest = null;
+      Snake smallest = null;
+      int maxLen = -1;
+      int minLen = Integer.MAX_VALUE;
+
+      for (Snake s : snakesSupplier.get()) {
+        int len = s.snapshot().size();
+        if (len > maxLen) {
+          maxLen = len;
+          longest = s;
+        }
+        if (len < minLen) {
+          minLen = len;
+          smallest = s;
+        }
+      }
+      
       var snakes = snakesSupplier.get();
       int idx = 0;
       for (Snake s : snakes) {
         var body = s.snapshot().toArray(new Position[0]);
         for (int i = 0; i < body.length; i++) {
           var p = body[i];
-          Color base = (idx == 0) ? new Color(0, 170, 0) : new Color(0, 160, 180);
+          Color baseColor;
+          
+          if (gameState.get() == GameState.PAUSED) {
+              if (s == longest) {
+                  baseColor = Color.YELLOW;  // Mejor serpiente = dorado/amarillo
+              } else if (s == smallest) {
+                  baseColor = Color.RED;     // Peor serpiente = rojo
+              } else {
+                  baseColor = Color.GRAY;    // Las demás grises (menos protagonismo)
+              }
+          } else {
+              // Colores normales cuando está corriendo
+              baseColor = (idx == 0) ? new Color(0, 170, 0) : new Color(0, 160, 180);
+          }
+          
           int shade = Math.max(0, 40 - i * 4);
           g2.setColor(new Color(
-              Math.min(255, base.getRed() + shade),
-              Math.min(255, base.getGreen() + shade),
-              Math.min(255, base.getBlue() + shade)));
+              Math.min(255, baseColor.getRed() + shade),
+              Math.min(255, baseColor.getGreen() + shade),
+              Math.min(255, baseColor.getBlue() + shade)));
           g2.fillRect(p.x() * cell + 2, p.y() * cell + 2, cell - 4, cell - 4);
         }
         idx++;

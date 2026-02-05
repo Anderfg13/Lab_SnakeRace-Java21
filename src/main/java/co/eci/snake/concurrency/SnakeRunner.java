@@ -55,4 +55,5 @@ public final class SnakeRunner implements Runnable {
     var dirs = Direction.values();
     snake.turn(dirs[ThreadLocalRandom.current().nextInt(dirs.length)]);
   }
+
 }
