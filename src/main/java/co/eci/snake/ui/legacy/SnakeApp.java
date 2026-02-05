@@ -6,13 +6,18 @@ import co.eci.snake.core.Direction;
 import co.eci.snake.core.Position;
 import co.eci.snake.core.Snake;
 import co.eci.snake.core.engine.GameClock;
-
 import javax.swing.*;
+import javax.swing.border.Border;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.*;
+import co.eci.snake.core.GameState;
+import java.util.concurrent.CyclicBarrier;
 
 public final class SnakeApp extends JFrame {
 
@@ -21,6 +26,8 @@ public final class SnakeApp extends JFrame {
   private final JButton actionButton;
   private final GameClock clock;
   private final java.util.List<Snake> snakes = new java.util.ArrayList<>();
+  private final AtomicReference<GameState> gameState = new AtomicReference<>(GameState.STOPPED);
+  private final CyclicBarrier pauseBarrier;
 
   public SnakeApp() {
     super("The Snake Race");
@@ -34,12 +41,20 @@ public final class SnakeApp extends JFrame {
       snakes.add(Snake.of(x, y, dir));
     }
 
-    this.gamePanel = new GamePanel(board, () -> snakes);
-    this.actionButton = new JButton("Action");
+    this.gamePanel = new GamePanel(board, () -> snakes, gameState);
+    this.actionButton = new JButton("Start");
+
+    this.pauseBarrier = new CyclicBarrier(snakes.size(), () -> {
+      SwingUtilities.invokeLater(() -> gamePanel.repaint());
+    });
+
 
     setLayout(new BorderLayout());
+    JPanel buttonPanel = new JPanel();
+    buttonPanel.add(actionButton);
+    add(buttonPanel, BorderLayout.SOUTH);
+
     add(gamePanel, BorderLayout.CENTER);
-    add(actionButton, BorderLayout.SOUTH);
 
     setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
     pack();
@@ -48,15 +63,21 @@ public final class SnakeApp extends JFrame {
     this.clock = new GameClock(60, () -> SwingUtilities.invokeLater(gamePanel::repaint));
 
     var exec = Executors.newVirtualThreadPerTaskExecutor();
-    snakes.forEach(s -> exec.submit(new SnakeRunner(s, board)));
+    snakes.forEach(s -> exec.submit(new SnakeRunner(s, board, gameState, pauseBarrier)));
 
-    actionButton.addActionListener((ActionEvent e) -> togglePause());
-
+    actionButton.addActionListener((ActionEvent e) -> handleAction());
+    
     gamePanel.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(KeyStroke.getKeyStroke("SPACE"), "pause");
     gamePanel.getActionMap().put("pause", new AbstractAction() {
       @Override
       public void actionPerformed(ActionEvent e) {
-        togglePause();
+        handleAction();
+      }
+    });
+    gamePanel.getActionMap().put("resume", new AbstractAction() {
+      @Override
+      public void actionPerformed(ActionEvent e) {
+        handleAction();
       }
     });
 
@@ -125,22 +146,31 @@ public final class SnakeApp extends JFrame {
     }
 
     setVisible(true);
-    clock.start();
   }
 
-  private void togglePause() {
-    if ("Action".equals(actionButton.getText())) {
-      actionButton.setText("Resume");
-      clock.pause();
-    } else {
-      actionButton.setText("Action");
-      clock.resume();
+  private void handleAction() {
+    String current = actionButton.getText();
+    
+    if ("Start".equals(current)) {
+        gameState.set(GameState.RUNNING);
+        clock.start();
+        actionButton.setText("Pause");
+    } else if ("Pause".equals(current)) {
+        gameState.set(GameState.PAUSED);
+        clock.pause();
+        actionButton.setText("Resume");
+    } else if ("Resume".equals(current)) {
+        pauseBarrier.reset();
+        gameState.set(GameState.RUNNING);
+        clock.resume();
+        actionButton.setText("Pause");
     }
-  }
+}
 
   public static final class GamePanel extends JPanel {
     private final Board board;
     private final Supplier snakesSupplier;
+    private final AtomicReference<GameState> gameState;
     private final int cell = 20;
 
     @FunctionalInterface
@@ -148,9 +178,10 @@ public final class SnakeApp extends JFrame {
       List<Snake> get();
     }
 
-    public GamePanel(Board board, Supplier snakesSupplier) {
+    public GamePanel(Board board, Supplier snakesSupplier, AtomicReference<GameState> gameState) {
       this.board = board;
       this.snakesSupplier = snakesSupplier;
+      this.gameState = gameState;
       setPreferredSize(new Dimension(board.width() * cell + 1, board.height() * cell + 40));
       setBackground(Color.WHITE);
     }
@@ -210,18 +241,49 @@ public final class SnakeApp extends JFrame {
       }
 
       // Serpientes
+      Snake longest = null;
+      Snake smallest = null;
+      int maxLen = -1;
+      int minLen = Integer.MAX_VALUE;
+
+      for (Snake s : snakesSupplier.get()) {
+        int len = s.snapshot().size();
+        if (len > maxLen) {
+          maxLen = len;
+          longest = s;
+        }
+        if (len < minLen) {
+          minLen = len;
+          smallest = s;
+        }
+      }
+      
       var snakes = snakesSupplier.get();
       int idx = 0;
       for (Snake s : snakes) {
         var body = s.snapshot().toArray(new Position[0]);
         for (int i = 0; i < body.length; i++) {
           var p = body[i];
-          Color base = (idx == 0) ? new Color(0, 170, 0) : new Color(0, 160, 180);
+          Color baseColor;
+          
+          if (gameState.get() == GameState.PAUSED) {
+              if (s == longest) {
+                  baseColor = Color.YELLOW;  // Mejor serpiente = dorado/amarillo
+              } else if (s == smallest) {
+                  baseColor = Color.RED;     // Peor serpiente = rojo
+              } else {
+                  baseColor = Color.GRAY;    // Las demás grises (menos protagonismo)
+              }
+          } else {
+              // Colores normales cuando está corriendo
+              baseColor = (idx == 0) ? new Color(0, 170, 0) : new Color(0, 160, 180);
+          }
+          
           int shade = Math.max(0, 40 - i * 4);
           g2.setColor(new Color(
-              Math.min(255, base.getRed() + shade),
-              Math.min(255, base.getGreen() + shade),
-              Math.min(255, base.getBlue() + shade)));
+              Math.min(255, baseColor.getRed() + shade),
+              Math.min(255, baseColor.getGreen() + shade),
+              Math.min(255, baseColor.getBlue() + shade)));
           g2.fillRect(p.x() * cell + 2, p.y() * cell + 2, cell - 4, cell - 4);
         }
         idx++;

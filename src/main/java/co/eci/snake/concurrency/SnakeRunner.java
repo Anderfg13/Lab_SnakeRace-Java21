@@ -3,27 +3,34 @@ package co.eci.snake.concurrency;
 import co.eci.snake.core.Board;
 import co.eci.snake.core.Direction;
 import co.eci.snake.core.Snake;
-
+import co.eci.snake.core.GameState;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.BrokenBarrierException;
 
 public final class SnakeRunner implements Runnable {
   private final Snake snake;
   private final Board board;
+  private AtomicReference<GameState> gameState = new AtomicReference<>(GameState.STOPPED);
+  private final CyclicBarrier pauseBarrier;
   private final int baseSleepMs = 80;
   private final int turboSleepMs = 40;
   private int turboTicks = 0;
 
-  public SnakeRunner(Snake snake, Board board) {
+  public SnakeRunner(Snake snake, Board board, AtomicReference<GameState> gameState, CyclicBarrier pauseBarrier) {
     this.snake = snake;
     this.board = board;
+    this.gameState = gameState;
+    this.pauseBarrier = pauseBarrier;
   }
-
   @Override
   public void run() {
     try {
       while (!Thread.currentThread().isInterrupted()) {
-        maybeTurn();
-        var res = board.step(snake);
+        if (gameState.get() == GameState.RUNNING) {
+            maybeTurn();
+          var res = board.step(snake);
         if (res == Board.MoveResult.HIT_OBSTACLE) {
           randomTurn();
         } else if (res == Board.MoveResult.ATE_TURBO) {
@@ -32,8 +39,14 @@ public final class SnakeRunner implements Runnable {
         int sleep = (turboTicks > 0) ? turboSleepMs : baseSleepMs;
         if (turboTicks > 0) turboTicks--;
         Thread.sleep(sleep);
-      }
-    } catch (InterruptedException ie) {
+        } else if (gameState.get() == GameState.PAUSED) {
+          pauseBarrier.await();
+          while (gameState.get() == GameState.PAUSED){
+            Thread.sleep(50);
+          }
+        }
+        }
+    } catch (InterruptedException | BrokenBarrierException ie) {
       Thread.currentThread().interrupt();
     }
   }
@@ -47,4 +60,5 @@ public final class SnakeRunner implements Runnable {
     var dirs = Direction.values();
     snake.turn(dirs[ThreadLocalRandom.current().nextInt(dirs.length)]);
   }
+
 }
