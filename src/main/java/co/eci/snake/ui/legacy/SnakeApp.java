@@ -19,16 +19,56 @@ import java.util.concurrent.atomic.*;
 import co.eci.snake.core.GameState;
 import java.util.concurrent.CyclicBarrier;
 
+/**
+ * Clase principal de la interfaz gráfica del juego Snake Race.
+ * 
+ * Extiende JFrame y maneja toda la interfaz de usuario incluyendo:
+ * - El panel de juego donde se dibujan las serpientes y elementos
+ * - El botón de acción para Start/Pause/Resume
+ * - Los controles de teclado para mover las serpientes
+ * - La sincronización de hilos durante pausas mediante CyclicBarrier
+ * 
+ * Utiliza hilos virtuales de Java 21 para manejar múltiples serpientes
+ * de forma eficiente y un GameClock para actualizaciones periódicas de la UI.
+ * 
+ * @author Anderson Fabian Garcia Nieto
+ * @author Juana Lozano Chaves
+ * @version 1.0
+ */
 public final class SnakeApp extends JFrame {
 
+  /** Tablero de juego con ratones, obstáculos, turbo y teleports */
   private final Board board;
+  
+  /** Panel donde se renderiza el juego */
   private final GamePanel gamePanel;
+  
+  /** Botón unificado para Start/Pause/Resume */
   private final JButton actionButton;
+  
+  /** Reloj que controla el refresco periódico de la UI */
   private final GameClock clock;
+  
+  /** Lista de todas las serpientes en el juego */
   private final java.util.List<Snake> snakes = new java.util.ArrayList<>();
+  
+  /** Estado compartido del juego accesible por todos los hilos */
   private final AtomicReference<GameState> gameState = new AtomicReference<>(GameState.STOPPED);
+  
+  /** Barrera cíclica para sincronizar serpientes durante pausas */
   private final CyclicBarrier pauseBarrier;
 
+  /**
+   * Constructor de la aplicación Snake Race.
+   * 
+   * Inicializa todos los componentes:
+   * - Crea el tablero de 35x28 celdas
+   * - Crea N serpientes según la propiedad del sistema -Dsnakes=N
+   * - Configura el panel de juego y el botón de acción
+   * - Inicializa el CyclicBarrier para sincronización en pausas
+   * - Lanza hilos virtuales para cada serpiente
+   * - Configura controles de teclado (flechas para P1, WASD para P2)
+   */
   public SnakeApp() {
     super("The Snake Race");
     this.board = new Board(35, 28);
@@ -148,6 +188,14 @@ public final class SnakeApp extends JFrame {
     setVisible(true);
   }
 
+  /**
+   * Maneja las acciones del botón unificado Start/Pause/Resume.
+   * 
+   * Según el texto actual del botón:
+   * - Start: Inicia el juego, cambia estado a RUNNING
+   * - Pause: Pausa el juego, cambia estado a PAUSED
+   * - Resume: Reanuda el juego, resetea la barrera y cambia a RUNNING
+   */
   private void handleAction() {
     String current = actionButton.getText();
     
@@ -167,17 +215,56 @@ public final class SnakeApp extends JFrame {
     }
 }
 
+  /**
+   * Panel personalizado para renderizar el juego.
+   * 
+   * Dibuja todos los elementos del juego:
+   * - Grilla del tablero
+   * - Obstáculos (naranja con líneas rojas)
+   * - Ratones (círculos negros con centro blanco)
+   * - Teleports (flechas rojas)
+   * - Turbo (rayos negros)
+   * - Serpientes (con colores especiales en pausa: amarillo=más larga, rojo=más corta)
+   * 
+   * @author Anderson Fabian Garcia Nieto
+   * @author Juana Lozano Chaves
+   */
   public static final class GamePanel extends JPanel {
+    
+    /** Referencia al tablero de juego */
     private final Board board;
+    
+    /** Proveedor de la lista de serpientes (para obtener estado actual) */
     private final Supplier snakesSupplier;
+    
+    /** Estado compartido del juego para colorear serpientes en pausa */
     private final AtomicReference<GameState> gameState;
+    
+    /** Tamaño en píxeles de cada celda del tablero */
     private final int cell = 20;
 
+    /**
+     * Interfaz funcional para proveer la lista de serpientes.
+     * 
+     * Se usa para desacoplar el GamePanel de la lista de serpientes,
+     * permitiendo obtener el estado actual en cada repaint.
+     */
     @FunctionalInterface
     public interface Supplier {
+      /**
+       * Obtiene la lista actual de serpientes.
+       * @return Lista de serpientes del juego
+       */
       List<Snake> get();
     }
 
+    /**
+     * Constructor del panel de juego.
+     * 
+     * @param board          Tablero de juego a renderizar
+     * @param snakesSupplier Proveedor de la lista de serpientes
+     * @param gameState      Estado compartido del juego
+     */
     public GamePanel(Board board, Supplier snakesSupplier, AtomicReference<GameState> gameState) {
       this.board = board;
       this.snakesSupplier = snakesSupplier;
@@ -186,6 +273,15 @@ public final class SnakeApp extends JFrame {
       setBackground(Color.WHITE);
     }
 
+    /**
+     * Renderiza todos los elementos del juego.
+     * 
+     * Dibuja en orden: grilla, obstáculos, ratones, teleports, turbo y serpientes.
+     * Durante pausa, colorea la serpiente más larga en amarillo, la más corta
+     * en rojo, y las demás en gris.
+     * 
+     * @param g Contexto gráfico proporcionado por Swing
+     */
     @Override
     protected void paintComponent(Graphics g) {
       super.paintComponent(g);
@@ -266,6 +362,7 @@ public final class SnakeApp extends JFrame {
           var p = body[i];
           Color baseColor;
           
+          // Durante pausa: colorear según longitud (amarillo=mejor, rojo=peor, gris=otras)
           if (gameState.get() == GameState.PAUSED) {
               if (s == longest) {
                   baseColor = Color.YELLOW;  // Mejor serpiente = dorado/amarillo
@@ -279,6 +376,7 @@ public final class SnakeApp extends JFrame {
               baseColor = (idx == 0) ? new Color(0, 170, 0) : new Color(0, 160, 180);
           }
           
+          // Aplicar degradado de color del cuerpo (cabeza más clara, cola más oscura)
           int shade = Math.max(0, 40 - i * 4);
           g2.setColor(new Color(
               Math.min(255, baseColor.getRed() + shade),
@@ -292,6 +390,12 @@ public final class SnakeApp extends JFrame {
     }
   }
 
+  /**
+   * Método estático para lanzar la aplicación.
+   * 
+   * Inicia la interfaz gráfica en el Event Dispatch Thread de Swing
+   * para garantizar la seguridad de hilos en la UI.
+   */
   public static void launch() {
     SwingUtilities.invokeLater(SnakeApp::new);
   }
