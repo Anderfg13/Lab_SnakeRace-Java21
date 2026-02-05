@@ -29,11 +29,14 @@ public final class Snake {
     this.direction = dir;
   }
 
-  public Position head() { return body.peekFirst(); }
+  // Sincronizado: UI puede leer mientras otro hilo modifica body
+  public synchronized Position head() { return body.peekFirst(); }
 
-  public Deque<Position> snapshot() { return new ArrayDeque<>(body); }
+  // Sincronizado: crea copia mientras body puede ser modificado
+  public synchronized Deque<Position> snapshot() { return new ArrayDeque<>(body); }
 
-  public void advance(Position newHead, boolean grow) {
+  // Sincronizado: modifica body (región crítica mínima)
+  public synchronized void advance(Position newHead, boolean grow) {
     body.addFirst(newHead);
     if (grow) maxLength++;
     while (body.size() > maxLength) body.removeLast();
