@@ -47,6 +47,9 @@ public final class SnakeRunner implements Runnable {
   /** Contador de ticks restantes en modo turbo */
   private int turboTicks = 0;
 
+  /** Indica si esta serpiente es controlada por un jugador (sin giros aleatorios) */
+  private final boolean isPlayerControlled;
+
   /**
    * Constructor del runner de serpiente.
    * 
@@ -56,10 +59,24 @@ public final class SnakeRunner implements Runnable {
    * @param pauseBarrier Barrera para sincronización durante pausas
    */
   public SnakeRunner(Snake snake, Board board, AtomicReference<GameState> gameState, CyclicBarrier pauseBarrier) {
+    this(snake, board, gameState, pauseBarrier, false);
+  }
+
+  /**
+   * Constructor del runner de serpiente con opción de control por jugador.
+   * 
+   * @param snake              La serpiente a controlar
+   * @param board              El tablero de juego
+   * @param gameState          Referencia atómica al estado del juego compartido
+   * @param pauseBarrier       Barrera para sincronización durante pausas
+   * @param isPlayerControlled true si la serpiente es controlada por un jugador (sin giros aleatorios)
+   */
+  public SnakeRunner(Snake snake, Board board, AtomicReference<GameState> gameState, CyclicBarrier pauseBarrier, boolean isPlayerControlled) {
     this.snake = snake;
     this.board = board;
     this.gameState = gameState;
     this.pauseBarrier = pauseBarrier;
+    this.isPlayerControlled = isPlayerControlled;
   }
 
   /**
@@ -76,9 +93,13 @@ public final class SnakeRunner implements Runnable {
     try {
       while (!Thread.currentThread().isInterrupted()) {
         if (gameState.get() == GameState.RUNNING) {
-            maybeTurn();
+            // Solo hacer giros aleatorios si NO es controlada por jugador
+            if (!isPlayerControlled) {
+              maybeTurn();
+            }
           var res = board.step(snake);
         if (res == Board.MoveResult.HIT_OBSTACLE) {
+          // Siempre rebotar al chocar con obstáculo (incluso serpiente del jugador)
           randomTurn();
         } else if (res == Board.MoveResult.ATE_TURBO) {
           turboTicks = 100;

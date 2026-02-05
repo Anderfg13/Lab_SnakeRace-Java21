@@ -103,7 +103,11 @@ public final class SnakeApp extends JFrame {
     this.clock = new GameClock(60, () -> SwingUtilities.invokeLater(gamePanel::repaint));
 
     var exec = Executors.newVirtualThreadPerTaskExecutor();
-    snakes.forEach(s -> exec.submit(new SnakeRunner(s, board, gameState, pauseBarrier)));
+    // La primera serpiente (verde) es controlada por el jugador - sin movimientos aleatorios
+    for (int i = 0; i < snakes.size(); i++) {
+      boolean isPlayer = (i == 0);  // Solo la serpiente 0 es controlada por jugador
+      exec.submit(new SnakeRunner(snakes.get(i), board, gameState, pauseBarrier, isPlayer));
+    }
 
     actionButton.addActionListener((ActionEvent e) -> handleAction());
     
@@ -124,10 +128,11 @@ public final class SnakeApp extends JFrame {
     var player = snakes.get(0);
     InputMap im = gamePanel.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
     ActionMap am = gamePanel.getActionMap();
-    im.put(KeyStroke.getKeyStroke("LEFT"), "left");
-    im.put(KeyStroke.getKeyStroke("RIGHT"), "right");
-    im.put(KeyStroke.getKeyStroke("UP"), "up");
-    im.put(KeyStroke.getKeyStroke("DOWN"), "down");
+    // Controles WASD para la serpiente verde (jugador 1)
+    im.put(KeyStroke.getKeyStroke("pressed A"), "left");
+    im.put(KeyStroke.getKeyStroke("pressed D"), "right");
+    im.put(KeyStroke.getKeyStroke("pressed W"), "up");
+    im.put(KeyStroke.getKeyStroke("pressed S"), "down");
     am.put("left", new AbstractAction() {
       @Override
       public void actionPerformed(ActionEvent e) {
@@ -153,37 +158,7 @@ public final class SnakeApp extends JFrame {
       }
     });
 
-    if (snakes.size() > 1) {
-      var p2 = snakes.get(1);
-      im.put(KeyStroke.getKeyStroke('A'), "p2-left");
-      im.put(KeyStroke.getKeyStroke('D'), "p2-right");
-      im.put(KeyStroke.getKeyStroke('W'), "p2-up");
-      im.put(KeyStroke.getKeyStroke('S'), "p2-down");
-      am.put("p2-left", new AbstractAction() {
-        @Override
-        public void actionPerformed(ActionEvent e) {
-          p2.turn(Direction.LEFT);
-        }
-      });
-      am.put("p2-right", new AbstractAction() {
-        @Override
-        public void actionPerformed(ActionEvent e) {
-          p2.turn(Direction.RIGHT);
-        }
-      });
-      am.put("p2-up", new AbstractAction() {
-        @Override
-        public void actionPerformed(ActionEvent e) {
-          p2.turn(Direction.UP);
-        }
-      });
-      am.put("p2-down", new AbstractAction() {
-        @Override
-        public void actionPerformed(ActionEvent e) {
-          p2.turn(Direction.DOWN);
-        }
-      });
-    }
+    // Ya no hay controles para jugador 2 - las demas serpientes son automaticas
 
     setVisible(true);
   }
