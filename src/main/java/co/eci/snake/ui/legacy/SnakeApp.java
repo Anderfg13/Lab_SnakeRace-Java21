@@ -111,14 +111,9 @@ public final class SnakeApp extends JFrame {
 
     actionButton.addActionListener((ActionEvent e) -> handleAction());
     
-    gamePanel.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(KeyStroke.getKeyStroke("SPACE"), "pause");
-    gamePanel.getActionMap().put("pause", new AbstractAction() {
-      @Override
-      public void actionPerformed(ActionEvent e) {
-        handleAction();
-      }
-    });
-    gamePanel.getActionMap().put("resume", new AbstractAction() {
+    // Tecla SPACE para pausar/reanudar el juego
+    gamePanel.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(KeyStroke.getKeyStroke("pressed SPACE"), "togglePause");
+    gamePanel.getActionMap().put("togglePause", new AbstractAction() {
       @Override
       public void actionPerformed(ActionEvent e) {
         handleAction();
