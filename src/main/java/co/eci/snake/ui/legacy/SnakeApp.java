@@ -12,10 +12,12 @@ import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.*;
 import co.eci.snake.core.GameState;
+import java.util.concurrent.CyclicBarrier;
 
 public final class SnakeApp extends JFrame {
 
@@ -25,6 +27,7 @@ public final class SnakeApp extends JFrame {
   private final GameClock clock;
   private final java.util.List<Snake> snakes = new java.util.ArrayList<>();
   private final AtomicReference<GameState> gameState = new AtomicReference<>(GameState.STOPPED);
+  private final CyclicBarrier pauseBarrier;
 
   public SnakeApp() {
     super("The Snake Race");
@@ -41,6 +44,9 @@ public final class SnakeApp extends JFrame {
     this.gamePanel = new GamePanel(board, () -> snakes, gameState);
     this.actionButton = new JButton("Start");
 
+    this.pauseBarrier = new CyclicBarrier(snakes.size(), () -> {
+      SwingUtilities.invokeLater(() -> gamePanel.repaint());
+    });
 
 
     setLayout(new BorderLayout());
@@ -57,7 +63,7 @@ public final class SnakeApp extends JFrame {
     this.clock = new GameClock(60, () -> SwingUtilities.invokeLater(gamePanel::repaint));
 
     var exec = Executors.newVirtualThreadPerTaskExecutor();
-    snakes.forEach(s -> exec.submit(new SnakeRunner(s, board, gameState)));
+    snakes.forEach(s -> exec.submit(new SnakeRunner(s, board, gameState, pauseBarrier)));
 
     actionButton.addActionListener((ActionEvent e) -> handleAction());
     
@@ -153,8 +159,8 @@ public final class SnakeApp extends JFrame {
         gameState.set(GameState.PAUSED);
         clock.pause();
         actionButton.setText("Resume");
-        gamePanel.repaint();
     } else if ("Resume".equals(current)) {
+        pauseBarrier.reset();
         gameState.set(GameState.RUNNING);
         clock.resume();
         actionButton.setText("Pause");
