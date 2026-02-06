@@ -12,7 +12,9 @@ Laboratorio de programación concurrente: condiciones de carrera, sincronizació
 - SO: Windows, macOS o Linux
 
 ---
-
+## Informe de laboratorio 
+El informe de este laboratorio se encuentra en formato pdf en la carpeta de Docs.
+---
 ## Cómo ejecutar
 
 ```bash
