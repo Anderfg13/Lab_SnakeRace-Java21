@@ -5,6 +5,12 @@ Laboratorio de programación concurrente: condiciones de carrera, sincronizació
 
 ---
 
+## Integrantes 
+- Anderson Fabian Garcia Nieto
+- Juana Lozano Chaves
+
+---
+
 ## Requisitos
 
 - **JDK 21** (Temurin recomendado)
