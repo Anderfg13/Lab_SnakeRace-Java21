@@ -6,22 +6,69 @@ import co.eci.snake.core.Direction;
 import co.eci.snake.core.Position;
 import co.eci.snake.core.Snake;
 import co.eci.snake.core.engine.GameClock;
-
 import javax.swing.*;
+import javax.swing.border.Border;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.*;
+import co.eci.snake.core.GameState;
+import java.util.concurrent.CyclicBarrier;
 
+/**
+ * Clase principal de la interfaz gráfica del juego Snake Race.
+ * 
+ * Extiende JFrame y maneja toda la interfaz de usuario incluyendo:
+ * - El panel de juego donde se dibujan las serpientes y elementos
+ * - El botón de acción para Start/Pause/Resume
+ * - Los controles de teclado para mover las serpientes
+ * - La sincronización de hilos durante pausas mediante CyclicBarrier
+ * 
+ * Utiliza hilos virtuales de Java 21 para manejar múltiples serpientes
+ * de forma eficiente y un GameClock para actualizaciones periódicas de la UI.
+ * 
+ * @author Anderson Fabian Garcia Nieto
+ * @author Juana Lozano Chaves
+ * @version 1.0
+ */
 public final class SnakeApp extends JFrame {
 
+  /** Tablero de juego con ratones, obstáculos, turbo y teleports */
   private final Board board;
+  
+  /** Panel donde se renderiza el juego */
   private final GamePanel gamePanel;
+  
+  /** Botón unificado para Start/Pause/Resume */
   private final JButton actionButton;
+  
+  /** Reloj que controla el refresco periódico de la UI */
   private final GameClock clock;
+  
+  /** Lista de todas las serpientes en el juego */
   private final java.util.List<Snake> snakes = new java.util.ArrayList<>();
+  
+  /** Estado compartido del juego accesible por todos los hilos */
+  private final AtomicReference<GameState> gameState = new AtomicReference<>(GameState.STOPPED);
+  
+  /** Barrera cíclica para sincronizar serpientes durante pausas */
+  private final CyclicBarrier pauseBarrier;
 
+  /**
+   * Constructor de la aplicación Snake Race.
+   * 
+   * Inicializa todos los componentes:
+   * - Crea el tablero de 35x28 celdas
+   * - Crea N serpientes según la propiedad del sistema -Dsnakes=N
+   * - Configura el panel de juego y el botón de acción
+   * - Inicializa el CyclicBarrier para sincronización en pausas
+   * - Lanza hilos virtuales para cada serpiente
+   * - Configura controles de teclado (flechas para P1, WASD para P2)
+   */
   public SnakeApp() {
     super("The Snake Race");
     this.board = new Board(35, 28);
@@ -34,12 +81,20 @@ public final class SnakeApp extends JFrame {
       snakes.add(Snake.of(x, y, dir));
     }
 
-    this.gamePanel = new GamePanel(board, () -> snakes);
-    this.actionButton = new JButton("Action");
+    this.gamePanel = new GamePanel(board, () -> snakes, gameState);
+    this.actionButton = new JButton("Start");
+
+    this.pauseBarrier = new CyclicBarrier(snakes.size(), () -> {
+      SwingUtilities.invokeLater(() -> gamePanel.repaint());
+    });
+
 
     setLayout(new BorderLayout());
+    JPanel buttonPanel = new JPanel();
+    buttonPanel.add(actionButton);
+    add(buttonPanel, BorderLayout.SOUTH);
+
     add(gamePanel, BorderLayout.CENTER);
-    add(actionButton, BorderLayout.SOUTH);
 
     setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
     pack();
@@ -48,25 +103,31 @@ public final class SnakeApp extends JFrame {
     this.clock = new GameClock(60, () -> SwingUtilities.invokeLater(gamePanel::repaint));
 
     var exec = Executors.newVirtualThreadPerTaskExecutor();
-    snakes.forEach(s -> exec.submit(new SnakeRunner(s, board)));
+    // La primera serpiente (verde) es controlada por el jugador - sin movimientos aleatorios
+    for (int i = 0; i < snakes.size(); i++) {
+      boolean isPlayer = (i == 0);  // Solo la serpiente 0 es controlada por jugador
+      exec.submit(new SnakeRunner(snakes.get(i), board, gameState, pauseBarrier, isPlayer));
+    }
 
-    actionButton.addActionListener((ActionEvent e) -> togglePause());
-
-    gamePanel.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(KeyStroke.getKeyStroke("SPACE"), "pause");
-    gamePanel.getActionMap().put("pause", new AbstractAction() {
+    actionButton.addActionListener((ActionEvent e) -> handleAction());
+    
+    // Tecla SPACE para pausar/reanudar el juego
+    gamePanel.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(KeyStroke.getKeyStroke("pressed SPACE"), "togglePause");
+    gamePanel.getActionMap().put("togglePause", new AbstractAction() {
       @Override
       public void actionPerformed(ActionEvent e) {
-        togglePause();
+        handleAction();
       }
     });
 
     var player = snakes.get(0);
     InputMap im = gamePanel.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
     ActionMap am = gamePanel.getActionMap();
-    im.put(KeyStroke.getKeyStroke("LEFT"), "left");
-    im.put(KeyStroke.getKeyStroke("RIGHT"), "right");
-    im.put(KeyStroke.getKeyStroke("UP"), "up");
-    im.put(KeyStroke.getKeyStroke("DOWN"), "down");
+    // Controles WASD para la serpiente verde (jugador 1)
+    im.put(KeyStroke.getKeyStroke("pressed A"), "left");
+    im.put(KeyStroke.getKeyStroke("pressed D"), "right");
+    im.put(KeyStroke.getKeyStroke("pressed W"), "up");
+    im.put(KeyStroke.getKeyStroke("pressed S"), "down");
     am.put("left", new AbstractAction() {
       @Override
       public void actionPerformed(ActionEvent e) {
@@ -92,69 +153,105 @@ public final class SnakeApp extends JFrame {
       }
     });
 
-    if (snakes.size() > 1) {
-      var p2 = snakes.get(1);
-      im.put(KeyStroke.getKeyStroke('A'), "p2-left");
-      im.put(KeyStroke.getKeyStroke('D'), "p2-right");
-      im.put(KeyStroke.getKeyStroke('W'), "p2-up");
-      im.put(KeyStroke.getKeyStroke('S'), "p2-down");
-      am.put("p2-left", new AbstractAction() {
-        @Override
-        public void actionPerformed(ActionEvent e) {
-          p2.turn(Direction.LEFT);
-        }
-      });
-      am.put("p2-right", new AbstractAction() {
-        @Override
-        public void actionPerformed(ActionEvent e) {
-          p2.turn(Direction.RIGHT);
-        }
-      });
-      am.put("p2-up", new AbstractAction() {
-        @Override
-        public void actionPerformed(ActionEvent e) {
-          p2.turn(Direction.UP);
-        }
-      });
-      am.put("p2-down", new AbstractAction() {
-        @Override
-        public void actionPerformed(ActionEvent e) {
-          p2.turn(Direction.DOWN);
-        }
-      });
-    }
+    // Ya no hay controles para jugador 2 - las demas serpientes son automaticas
 
     setVisible(true);
-    clock.start();
   }
 
-  private void togglePause() {
-    if ("Action".equals(actionButton.getText())) {
-      actionButton.setText("Resume");
-      clock.pause();
-    } else {
-      actionButton.setText("Action");
-      clock.resume();
+  /**
+   * Maneja las acciones del botón unificado Start/Pause/Resume.
+   * 
+   * Según el texto actual del botón:
+   * - Start: Inicia el juego, cambia estado a RUNNING
+   * - Pause: Pausa el juego, cambia estado a PAUSED
+   * - Resume: Reanuda el juego, resetea la barrera y cambia a RUNNING
+   */
+  private void handleAction() {
+    String current = actionButton.getText();
+    
+    if ("Start".equals(current)) {
+        gameState.set(GameState.RUNNING);
+        clock.start();
+        actionButton.setText("Pause");
+    } else if ("Pause".equals(current)) {
+        gameState.set(GameState.PAUSED);
+        clock.pause();
+        actionButton.setText("Resume");
+    } else if ("Resume".equals(current)) {
+        pauseBarrier.reset();
+        gameState.set(GameState.RUNNING);
+        clock.resume();
+        actionButton.setText("Pause");
     }
-  }
+}
 
+  /**
+   * Panel personalizado para renderizar el juego.
+   * 
+   * Dibuja todos los elementos del juego:
+   * - Grilla del tablero
+   * - Obstáculos (naranja con líneas rojas)
+   * - Ratones (círculos negros con centro blanco)
+   * - Teleports (flechas rojas)
+   * - Turbo (rayos negros)
+   * - Serpientes (con colores especiales en pausa: amarillo=más larga, rojo=más corta)
+   * 
+   * @author Anderson Fabian Garcia Nieto
+   * @author Juana Lozano Chaves
+   */
   public static final class GamePanel extends JPanel {
+    
+    /** Referencia al tablero de juego */
     private final Board board;
+    
+    /** Proveedor de la lista de serpientes (para obtener estado actual) */
     private final Supplier snakesSupplier;
+    
+    /** Estado compartido del juego para colorear serpientes en pausa */
+    private final AtomicReference<GameState> gameState;
+    
+    /** Tamaño en píxeles de cada celda del tablero */
     private final int cell = 20;
 
+    /**
+     * Interfaz funcional para proveer la lista de serpientes.
+     * 
+     * Se usa para desacoplar el GamePanel de la lista de serpientes,
+     * permitiendo obtener el estado actual en cada repaint.
+     */
     @FunctionalInterface
     public interface Supplier {
+      /**
+       * Obtiene la lista actual de serpientes.
+       * @return Lista de serpientes del juego
+       */
       List<Snake> get();
     }
 
-    public GamePanel(Board board, Supplier snakesSupplier) {
+    /**
+     * Constructor del panel de juego.
+     * 
+     * @param board          Tablero de juego a renderizar
+     * @param snakesSupplier Proveedor de la lista de serpientes
+     * @param gameState      Estado compartido del juego
+     */
+    public GamePanel(Board board, Supplier snakesSupplier, AtomicReference<GameState> gameState) {
       this.board = board;
       this.snakesSupplier = snakesSupplier;
+      this.gameState = gameState;
       setPreferredSize(new Dimension(board.width() * cell + 1, board.height() * cell + 40));
       setBackground(Color.WHITE);
     }
 
+    /**
+     * Renderiza todos los elementos del juego.
+     * 
+     * Dibuja en orden: grilla, obstáculos, ratones, teleports, turbo y serpientes.
+     * Durante pausa, colorea la serpiente más larga en amarillo, la más corta
+     * en rojo, y las demás en gris.
+     * 
+     * @param g Contexto gráfico proporcionado por Swing
+     */
     @Override
     protected void paintComponent(Graphics g) {
       super.paintComponent(g);
@@ -210,18 +307,51 @@ public final class SnakeApp extends JFrame {
       }
 
       // Serpientes
+      Snake longest = null;
+      Snake smallest = null;
+      int maxLen = -1;
+      int minLen = Integer.MAX_VALUE;
+
+      for (Snake s : snakesSupplier.get()) {
+        int len = s.snapshot().size();
+        if (len > maxLen) {
+          maxLen = len;
+          longest = s;
+        }
+        if (len < minLen) {
+          minLen = len;
+          smallest = s;
+        }
+      }
+      
       var snakes = snakesSupplier.get();
       int idx = 0;
       for (Snake s : snakes) {
         var body = s.snapshot().toArray(new Position[0]);
         for (int i = 0; i < body.length; i++) {
           var p = body[i];
-          Color base = (idx == 0) ? new Color(0, 170, 0) : new Color(0, 160, 180);
+          Color baseColor;
+          
+          // Durante pausa: colorear según longitud (amarillo=mejor, rojo=peor, gris=otras)
+          if (gameState.get() == GameState.PAUSED) {
+              if (s == longest) {
+                  baseColor = Color.YELLOW;  // Mejor serpiente = dorado/amarillo
+              } else if (s == smallest) {
+                  baseColor = Color.RED;     // Peor serpiente = rojo
+              } else {
+                  baseColor = Color.GRAY;    // Las demás grises (menos protagonismo)
+              }
+          } else {
+              // Colores normales cuando está corriendo
+              baseColor = (idx == 0) ? new Color(0, 170, 0) : new Color(0, 160, 180);
+          }
+          
+          // Aplicar degradado de color del cuerpo (cabeza más clara, cola más oscura)
           int shade = Math.max(0, 40 - i * 4);
           g2.setColor(new Color(
-              Math.min(255, base.getRed() + shade),
-              Math.min(255, base.getGreen() + shade),
-              Math.min(255, base.getBlue() + shade)));
+              Math.min(255, baseColor.getRed() + shade),
+              Math.min(255, baseColor.getGreen() + shade),
+              Math.min(255, baseColor.getBlue() + shade)));
           g2.fillRect(p.x() * cell + 2, p.y() * cell + 2, cell - 4, cell - 4);
         }
         idx++;
@@ -230,6 +360,12 @@ public final class SnakeApp extends JFrame {
     }
   }
 
+  /**
+   * Método estático para lanzar la aplicación.
+   * 
+   * Inicia la interfaz gráfica en el Event Dispatch Thread de Swing
+   * para garantizar la seguridad de hilos en la UI.
+   */
   public static void launch() {
     SwingUtilities.invokeLater(SnakeApp::new);
   }
